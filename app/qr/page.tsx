@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import QRCode from "qrcode";
-import PrintButton from "./PrintButton";
+import QrActions from "./QrActions";
 
 export const metadata: Metadata = { title: "Scan to Apply" };
 
@@ -19,7 +19,6 @@ export default async function QrPage() {
   const url = await getFormUrl();
   const options = { errorCorrectionLevel: "M" as const, margin: 1, color: { dark: "#1e3a8a", light: "#ffffff" } };
   const svg = await QRCode.toString(url, { ...options, type: "svg" });
-  const png = await QRCode.toDataURL(url, { ...options, width: 1024 });
   const isLocalhost = /\/\/(localhost|127\.0\.0\.1)/.test(url);
 
   return (
@@ -30,7 +29,7 @@ export default async function QrPage() {
         <p className="mt-1 text-sm text-slate-500">Scan with your phone camera to open the job application form.</p>
 
         <div
-          className="mx-auto mt-5 w-full max-w-64 [&>svg]:h-auto [&>svg]:w-full"
+          className="mx-auto mt-5 w-full max-w-64 print:max-w-md [&>svg]:h-auto [&>svg]:w-full"
           role="img"
           aria-label={`QR code for ${url}`}
           dangerouslySetInnerHTML={{ __html: svg }}
@@ -46,16 +45,7 @@ export default async function QrPage() {
           </p>
         )}
 
-        <div className="mt-5 flex gap-3 print:hidden">
-          <a
-            href={png}
-            download="job-application-qr.png"
-            className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Download PNG
-          </a>
-          <PrintButton />
-        </div>
+        <QrActions url={url} />
       </div>
     </main>
   );

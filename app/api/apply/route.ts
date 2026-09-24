@@ -27,7 +27,8 @@ const TEXT_FIELDS = [
   "joiningDate",
 ] as const;
 
-const REQUIRED: (typeof TEXT_FIELDS)[number][] = ["position", "fullName", "contactNumber", "email"];
+// Every field on the form is required.
+const REQUIRED = TEXT_FIELDS;
 
 export async function POST(request: Request) {
   let form: FormData;
@@ -51,6 +52,9 @@ export async function POST(request: Request) {
   if (!/^\S+@\S+\.\S+$/.test(data.email)) {
     return Response.json({ ok: false, error: "Invalid email address" }, { status: 400 });
   }
+  if (data.nightShift !== "Yes" && data.nightShift !== "No") {
+    return Response.json({ ok: false, error: "Please answer the night shift question" }, { status: 400 });
+  }
 
   let skills: string[] = [];
   try {
@@ -59,32 +63,36 @@ export async function POST(request: Request) {
   } catch {
     // ignore malformed skills, treat as empty
   }
+  if (!skills.length) {
+    return Response.json({ ok: false, error: "Please add at least one skill" }, { status: 400 });
+  }
 
-  // Resume upload (optional)
-  let resumeUrl = "";
-  let resumePublicId = "";
+  // Resume upload (required)
   const resume = form.get("resume");
-  if (resume instanceof File && resume.size > 0) {
-    const isPdf = resume.type === "application/pdf" || /\.pdf$/i.test(resume.name);
-    if (!isPdf) {
-      return Response.json({ ok: false, error: "Resume must be a PDF" }, { status: 400 });
-    }
-    if (resume.size > MAX_RESUME_BYTES) {
-      return Response.json({ ok: false, error: "Resume must be 5 MB or smaller" }, { status: 400 });
-    }
-    try {
-      const buffer = Buffer.from(await resume.arrayBuffer());
-      const uploaded = await uploadPdf(buffer, resume.name);
-      resumeUrl = uploaded.secure_url;
-      resumePublicId = uploaded.public_id;
-    } catch (err) {
-      console.error("Cloudinary upload failed:", err);
-      const detail =
-        process.env.NODE_ENV !== "production" && err && typeof err === "object" && "message" in err
-          ? ` (${String(err.message)})`
-          : "";
-      return Response.json({ ok: false, error: `Could not upload resume${detail}` }, { status: 502 });
-    }
+  if (!(resume instanceof File) || resume.size === 0) {
+    return Response.json({ ok: false, error: "Please upload your resume (PDF)" }, { status: 400 });
+  }
+  const isPdf = resume.type === "application/pdf" || /\.pdf$/i.test(resume.name);
+  if (!isPdf) {
+    return Response.json({ ok: false, error: "Resume must be a PDF" }, { status: 400 });
+  }
+  if (resume.size > MAX_RESUME_BYTES) {
+    return Response.json({ ok: false, error: "Resume must be 5 MB or smaller" }, { status: 400 });
+  }
+  let resumeUrl: string;
+  let resumePublicId: string;
+  try {
+    const buffer = Buffer.from(await resume.arrayBuffer());
+    const uploaded = await uploadPdf(buffer, resume.name);
+    resumeUrl = uploaded.secure_url;
+    resumePublicId = uploaded.public_id;
+  } catch (err) {
+    console.error("Cloudinary upload failed:", err);
+    const detail =
+      process.env.NODE_ENV !== "production" && err && typeof err === "object" && "message" in err
+        ? ` (${String(err.message)})`
+        : "";
+    return Response.json({ ok: false, error: `Could not upload resume${detail}` }, { status: 502 });
   }
 
   const submittedAt = new Date();
@@ -98,7 +106,17 @@ export async function POST(request: Request) {
     insertedId = result.insertedId;
   } catch (err) {
     console.error("MongoDB insert failed", err);
-    return Response.json({ ok: false, error: "Could not save application" }, { status: 500 });
+    // Safe hints (no secrets) so config problems are visible from the browser.
+    const name = err instanceof Error ? err.name : "";
+    const message = err instanceof Error ? err.message : "";
+    const hint = message.includes("MONGODB_URI is not set")
+      ? " (server is missing MONGODB_URI)"
+      : name === "MongoServerSelectionError" || name === "MongoNetworkError"
+        ? " (cannot reach database: check MongoDB Atlas Network Access)"
+        : name === "MongoServerError" && /auth/i.test(message)
+          ? " (database login failed: check MONGODB_URI user/password)"
+          : "";
+    return Response.json({ ok: false, error: `Could not save application${hint}` }, { status: 500 });
   }
 
   // Cloudinary's own PDF link is blocked for public delivery, so the sheet gets

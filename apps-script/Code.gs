@@ -12,7 +12,7 @@
  * otherwise the old code keeps running.
  */
 
-const SECRET = '9aab5243ea75ca862635ca5f34db9fad';
+const SECRET = 'change-me';
 // The ID from your sheet link: docs.google.com/spreadsheets/d/<THIS PART>/edit
 const SPREADSHEET_ID = '1PYwfkeaRYEOXx3FP5GO3EiaCzXikeNIDA6Hcc-HYl4k';
 const SHEET_NAME = 'Applications';

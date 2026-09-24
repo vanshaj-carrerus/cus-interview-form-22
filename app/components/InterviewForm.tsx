@@ -26,7 +26,7 @@ function Field({
   label,
   htmlFor,
   full,
-  required,
+  required = true,
   children,
 }: {
   label: string;
@@ -47,6 +47,12 @@ function Field({
 }
 
 type Status = { type: "idle" | "loading" | "success" | "error"; message?: string };
+type FieldErrors = Partial<Record<"nightShift" | "skills" | "resume", string>>;
+
+function ErrorText({ children }: { children?: string }) {
+  if (!children) return null;
+  return <p className="mt-1.5 text-xs font-medium text-red-600">{children}</p>;
+}
 
 export default function InterviewForm() {
   const formRef = useRef<HTMLFormElement>(null);
@@ -55,6 +61,7 @@ export default function InterviewForm() {
   const [nightShift, setNightShift] = useState("");
   const [fileName, setFileName] = useState("");
   const [status, setStatus] = useState<Status>({ type: "idle" });
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   function addSkill() {
     const parts = skillInput
@@ -76,6 +83,7 @@ export default function InterviewForm() {
     if (e.key === "Enter") {
       e.preventDefault();
       addSkill();
+      if (skillInput.trim()) setFieldErrors((prev) => ({ ...prev, skills: undefined }));
     }
   }
 
@@ -85,18 +93,36 @@ export default function InterviewForm() {
     setSkillInput("");
     setNightShift("");
     setFileName("");
+    setFieldErrors({});
   }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    fd.set("skills", JSON.stringify(skills));
+    // Count a skill that was typed but not yet added with the Add button.
+    const pending = skillInput.split(",").map((s) => s.trim()).filter(Boolean);
+    const allSkills = [...skills, ...pending.filter((p) => !skills.some((s) => s.toLowerCase() === p.toLowerCase()))];
+    fd.set("skills", JSON.stringify(allSkills));
     fd.set("nightShift", nightShift);
 
+    // These three aren't native inputs, so the browser's `required` check doesn't cover them.
     const resume = fd.get("resume");
-    if (resume instanceof File && resume.size > MAX_RESUME_BYTES) {
-      setStatus({ type: "error", message: "Resume must be 5 MB or smaller." });
+    const errors: FieldErrors = {};
+    if (!nightShift) errors.nightShift = "Please choose Yes or No.";
+    if (!allSkills.length) errors.skills = "Please add at least one skill.";
+    if (!(resume instanceof File) || resume.size === 0) errors.resume = "Please upload your resume (PDF).";
+    else if (resume.size > MAX_RESUME_BYTES) errors.resume = "Resume must be 5 MB or smaller.";
+    setFieldErrors(errors);
+
+    const firstError = (["nightShift", "skills", "resume"] as const).find((k) => errors[k]);
+    if (firstError) {
+      setStatus({ type: "error", message: "Please complete all required fields." });
+      document.getElementById(`${firstError}-field`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
+    }
+    if (pending.length) {
+      setSkills(allSkills);
+      setSkillInput("");
     }
 
     setStatus({ type: "loading" });
@@ -127,7 +153,7 @@ export default function InterviewForm() {
           <input id="position" name="position" required className={inputCls} />
         </Field>
         <Field label="Applying date" htmlFor="applyingDate">
-          <input id="applyingDate" name="applyingDate" type="date" className={inputCls} />
+          <input id="applyingDate" name="applyingDate" required type="date" className={inputCls} />
         </Field>
       </Section>
 
@@ -150,44 +176,49 @@ export default function InterviewForm() {
           <input id="email" name="email" type="email" autoComplete="email" required className={inputCls} />
         </Field>
         <Field label="Current address" htmlFor="currentAddress" full>
-          <textarea id="currentAddress" name="currentAddress" autoComplete="street-address" className={textareaCls} />
+          <textarea id="currentAddress" name="currentAddress" required autoComplete="street-address" className={textareaCls} />
         </Field>
       </Section>
 
       <Section title="About your application">
         <Field label="Why do you want to join us?" htmlFor="whyJoin" full>
-          <textarea id="whyJoin" name="whyJoin" className={textareaCls} />
+          <textarea id="whyJoin" name="whyJoin" required className={textareaCls} />
         </Field>
         <Field label="What do you know about this job role?" htmlFor="knowAboutRole" full>
-          <textarea id="knowAboutRole" name="knowAboutRole" className={textareaCls} />
+          <textarea id="knowAboutRole" name="knowAboutRole" required className={textareaCls} />
         </Field>
         <Field label="Why do you want to change your current/last job?" htmlFor="whyChange" full>
-          <textarea id="whyChange" name="whyChange" className={textareaCls} />
+          <textarea id="whyChange" name="whyChange" required className={textareaCls} />
         </Field>
         <Field label="Why should we hire you?" htmlFor="whyHire" full>
-          <textarea id="whyHire" name="whyHire" className={textareaCls} />
+          <textarea id="whyHire" name="whyHire" required className={textareaCls} />
         </Field>
       </Section>
 
       <Section title="Employment details">
         <Field label="Current / last employer" htmlFor="currentEmployer">
-          <input id="currentEmployer" name="currentEmployer" className={inputCls} />
+          <input id="currentEmployer" name="currentEmployer" required className={inputCls} />
         </Field>
         <Field label="Salary expectations" htmlFor="salaryExpectation">
-          <input id="salaryExpectation" name="salaryExpectation" className={inputCls} />
+          <input id="salaryExpectation" name="salaryExpectation" required className={inputCls} />
         </Field>
       </Section>
 
       <Section title="General">
-        <div className="sm:col-span-2">
-          <p className="mb-2 text-sm font-medium text-slate-700">Are you willing to work night shifts?</p>
+        <div id="nightShift-field" className="sm:col-span-2">
+          <p className="mb-2 text-sm font-medium text-slate-700">
+            Are you willing to work night shifts?<span className="text-red-500"> *</span>
+          </p>
           <div className="flex gap-2">
             {["Yes", "No"].map((opt) => (
               <button
                 key={opt}
                 type="button"
                 aria-pressed={nightShift === opt}
-                onClick={() => setNightShift(nightShift === opt ? "" : opt)}
+                onClick={() => {
+                  setNightShift(opt);
+                  setFieldErrors((prev) => ({ ...prev, nightShift: undefined }));
+                }}
                 className={`min-w-20 rounded-full border px-5 py-2 text-sm font-medium transition ${
                   nightShift === opt
                     ? "border-blue-700 bg-blue-700 text-white"
@@ -198,28 +229,29 @@ export default function InterviewForm() {
               </button>
             ))}
           </div>
+          <ErrorText>{fieldErrors.nightShift}</ErrorText>
         </div>
         <Field label="What is your ideal work environment?" htmlFor="idealEnvironment" full>
-          <textarea id="idealEnvironment" name="idealEnvironment" className={textareaCls} />
+          <textarea id="idealEnvironment" name="idealEnvironment" required className={textareaCls} />
         </Field>
       </Section>
 
       <Section title="Reference">
         <Field label="Reference name & contact" htmlFor="reference" full>
-          <textarea id="reference" name="reference" className={textareaCls} />
+          <textarea id="reference" name="reference" required className={textareaCls} />
         </Field>
       </Section>
 
       <Section title="Medical information">
-        <Field label="Any medical issues (if applicable)" htmlFor="medicalIssues" full>
-          <textarea id="medicalIssues" name="medicalIssues" className={textareaCls} />
+        <Field label='Any medical issues (write "None" if not applicable)' htmlFor="medicalIssues" full>
+          <textarea id="medicalIssues" name="medicalIssues" required className={textareaCls} />
         </Field>
       </Section>
 
       <Section title="Skills">
-        <div className="sm:col-span-2">
+        <div id="skills-field" className="sm:col-span-2">
           <label htmlFor="skillInput" className="mb-1.5 block text-sm font-medium text-slate-700">
-            Add candidate skills
+            Add candidate skills<span className="text-red-500"> *</span>
           </label>
           <div className="flex gap-2">
             <input
@@ -232,7 +264,10 @@ export default function InterviewForm() {
             />
             <button
               type="button"
-              onClick={addSkill}
+              onClick={() => {
+                addSkill();
+                if (skillInput.trim()) setFieldErrors((prev) => ({ ...prev, skills: undefined }));
+              }}
               className="shrink-0 rounded-lg bg-blue-900 px-4 text-sm font-semibold text-white hover:bg-blue-800"
             >
               Add
@@ -256,16 +291,20 @@ export default function InterviewForm() {
               ))}
             </ul>
           ) : (
-            <p className="mt-2 text-xs text-slate-400">No skills added yet.</p>
+            !fieldErrors.skills && <p className="mt-2 text-xs text-slate-400">No skills added yet.</p>
           )}
+          <ErrorText>{fieldErrors.skills}</ErrorText>
         </div>
       </Section>
 
       <Section title="Documents & dates">
         <Field label="Resume upload (PDF, max 5 MB)" htmlFor="resume">
           <label
+            id="resume-field"
             htmlFor="resume"
-            className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm hover:border-blue-600"
+            className={`flex cursor-pointer items-center gap-3 rounded-lg border border-dashed bg-slate-50 px-3 py-2.5 text-sm hover:border-blue-600 ${
+              fieldErrors.resume ? "border-red-400" : "border-slate-300"
+            }`}
           >
             <span className="shrink-0 rounded-md bg-blue-900 px-3 py-1.5 text-xs font-semibold text-white">
               Choose file
@@ -278,11 +317,15 @@ export default function InterviewForm() {
             type="file"
             accept="application/pdf,.pdf"
             className="sr-only"
-            onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+            onChange={(e) => {
+              setFileName(e.target.files?.[0]?.name ?? "");
+              setFieldErrors((prev) => ({ ...prev, resume: undefined }));
+            }}
           />
+          <ErrorText>{fieldErrors.resume}</ErrorText>
         </Field>
         <Field label="Joining date" htmlFor="joiningDate">
-          <input id="joiningDate" name="joiningDate" type="date" className={inputCls} />
+          <input id="joiningDate" name="joiningDate" required type="date" className={inputCls} />
         </Field>
       </Section>
 
