@@ -12,6 +12,8 @@ export async function appendToSheet(row: Record<string, unknown>) {
     signal: AbortSignal.timeout(20_000),
   });
 
+
+
   const text = await res.text();
   let data: { ok?: boolean; error?: string } = {};
   try {
